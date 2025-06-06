@@ -1,258 +1,193 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Carbon Emissions Visualization</title>
+  <meta charset="UTF-8">
+  <title>学生吸烟、饮酒与心理健康数据分析</title>
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <style>
-    body {
-      font-family: sans-serif;
-      margin: 0;
-      padding: 0;
-    }
-    svg {
-      display: block;
-      margin: auto;
-    }
-    .tooltip {
-      position: absolute;
-      text-align: center;
-      padding: 6px;
-      font-size: 12px;
-      background: rgba(0, 0, 0, 0.7);
-      color: white;
-      border-radius: 4px;
-      pointer-events: none;
-      visibility: hidden;
-    }
-    .legend rect {
-      stroke-width: 1;
-      stroke: #ccc;
-    }
+    body { font-family: sans-serif; margin: 20px; }
+    #chart { width: 100%; height: 700px; }
+    select { font-size: 16px; padding: 4px; margin-bottom: 20px; }
   </style>
 </head>
 <body>
-  <h1 style="text-align:center">Global Carbon Emissions Visualization</h1>
 
-  <div id="sankey"></div>
-  <div id="stacked"></div>
-  <div id="boxplot"></div>
-  <div id="heatmap"></div>
-  <div class="tooltip" id="tooltip"></div>
+<h1>学生吸烟、饮酒与心理健康数据分析</h1>
 
-  <script>
-    const tooltip = d3.select("#tooltip");
+<select id="question-select">
+  <option value="q1">1. 吸烟、酒精和心理健康之间相互作用</option>
+  <option value="q2">2. 研究领域对于吸烟、喝酒的作用</option>
+  <option value="q3">3. 年龄与吸烟、喝酒的关系</option>
+  <option value="q4">4. 吸烟与饮酒之间是否有联系</option>
+</select>
 
-    // ==== Sample Data for Each Chart Type (You should replace with actual data) ====
-    const sankeyData = {
-      nodes: [
-        { name: "Fossil Fuels" },
-        { name: "Transportation" },
-        { name: "Industry" },
-        { name: "Residential" }
-      ],
-      links: [
-        { source: 0, target: 1, value: 20 },
-        { source: 0, target: 2, value: 10 },
-        { source: 0, target: 3, value: 5 }
-      ]
-    };
+<div id="chart"></div>
 
-    const stackedData = [
-      { year: 2000, USA: 5000, China: 4000, EU: 3000 },
-      { year: 2005, USA: 5200, China: 6000, EU: 3100 },
-      { year: 2010, USA: 4800, China: 8000, EU: 2900 },
-      { year: 2015, USA: 4700, China: 9500, EU: 2800 }
-    ];
+<script>
+  // 心理健康排序，确保顺序一致
+  const health_order = ['优秀', '好', '平均', '低于平均水平', '差'];
+  let data = [];
 
-    const boxplotData = [
-      { region: "USA", values: [30, 35, 40, 45, 50, 55, 60] },
-      { region: "China", values: [40, 45, 55, 60, 65, 70, 80] },
-      { region: "EU", values: [20, 25, 30, 35, 38, 40, 42] }
-    ];
+  // 读取 JSON 数据
+  d3.json("data.json").then(raw => {
+    data = raw;
+    updateChart("q1");
+  });
 
-    const heatmapData = [];
-    const countries = ["USA", "China", "EU"];
-    const years = ["2000", "2005", "2010", "2015"];
-    countries.forEach((country, i) => {
-      years.forEach((year, j) => {
-        heatmapData.push({
-          country,
-          year,
-          value: Math.floor(Math.random() * 100 + 100)
+  document.getElementById("question-select").addEventListener("change", function () {
+    updateChart(this.value);
+  });
+
+  // 唯一有序
+  function uniqueSorted(arr, order) {
+    if (order) {
+      return order.filter(val => arr.includes(val));
+    }
+    return Array.from(new Set(arr));
+  }
+
+  function updateChart(q) {
+    if (q === "q1") {
+      // 1. 桑基图
+      let smoke_labels = uniqueSorted(data.map(d => d.吸烟频率).filter(Boolean));
+      let alcohol_labels = uniqueSorted(data.map(d => d.酒精消费频率).filter(Boolean));
+      let health_labels = health_order;
+
+      let labels = smoke_labels.concat(alcohol_labels).concat(health_labels);
+
+      let smoke_idx = Object.fromEntries(smoke_labels.map((k, i) => [k, i]));
+      let alcohol_idx = Object.fromEntries(alcohol_labels.map((k, i) => [k, i+smoke_labels.length]));
+      let health_idx = Object.fromEntries(health_labels.map((k, i) => [k, i+smoke_labels.length+alcohol_labels.length]));
+
+      let links_source = [], links_target = [], links_value = [];
+
+      // 吸烟 -> 酒精
+      smoke_labels.forEach(s => {
+        let filtered = data.filter(d => d.吸烟频率 === s);
+        let counts = {};
+        filtered.forEach(d => {
+          if (d.酒精消费频率) counts[d.酒精消费频率] = (counts[d.酒精消费频率] || 0) + 1;
+        });
+        alcohol_labels.forEach(a => {
+          if (counts[a]) {
+            links_source.push(smoke_idx[s]);
+            links_target.push(alcohol_idx[a]);
+            links_value.push(counts[a]);
+          }
         });
       });
-    });
 
-    // === Sankey Diagram ===
-    function drawSankey() {
-      const width = 600, height = 300;
-      const svg = d3.select("#sankey")
-        .append("svg")
-        .attr("width", width)
-        .attr("height", height);
-
-      const sankey = d3.sankey()
-        .nodeWidth(20)
-        .nodePadding(20)
-        .extent([[1, 1], [width - 1, height - 6]]);
-
-      const graph = sankey({
-        nodes: sankeyData.nodes.map(d => Object.assign({}, d)),
-        links: sankeyData.links.map(d => Object.assign({}, d))
+      // 酒精 -> 心理健康
+      alcohol_labels.forEach(a => {
+        let filtered = data.filter(d => d.酒精消费频率 === a);
+        let counts = {};
+        filtered.forEach(d => {
+          if (d.心理健康) counts[d.心理健康] = (counts[d.心理健康] || 0) + 1;
+        });
+        health_labels.forEach(h => {
+          if (counts[h]) {
+            links_source.push(alcohol_idx[a]);
+            links_target.push(health_idx[h]);
+            links_value.push(counts[h]);
+          }
+        });
       });
 
-      svg.append("g")
-        .selectAll("rect")
-        .data(graph.nodes)
-        .join("rect")
-        .attr("x", d => d.x0)
-        .attr("y", d => d.y0)
-        .attr("height", d => d.y1 - d.y0)
-        .attr("width", d => d.x1 - d.x0)
-        .attr("fill", "#69b3a2")
-        .append("title")
-        .text(d => d.name);
+      Plotly.newPlot("chart", [{
+        type: "sankey",
+        orientation: "h",
+        node: {
+          label: labels,
+          pad: 15,
+          thickness: 20,
+          color: "lightblue"
+        },
+        link: { source: links_source, target: links_target, value: links_value }
+      }], {
+        title: "吸烟、饮酒与心理健康关系（桑基图）"
+      });
 
-      svg.append("g")
-        .attr("fill", "none")
-        .attr("stroke-opacity", 0.5)
-        .selectAll("g")
-        .data(graph.links)
-        .join("path")
-        .attr("d", d3.sankeyLinkHorizontal())
-        .attr("stroke", "#000")
-        .attr("stroke-width", d => Math.max(1, d.width))
-        .on("mouseover", (event, d) => {
-          tooltip.style("visibility", "visible")
-            .text(`${d.source.name} → ${d.target.name}: ${d.value}`);
-        })
-        .on("mousemove", event => {
-          tooltip.style("top", (event.pageY + 10) + "px")
-            .style("left", (event.pageX + 10) + "px");
-        })
-        .on("mouseout", () => tooltip.style("visibility", "hidden"));
+    } else if (q === "q2") {
+      // 2. 研究领域 vs 吸烟频率堆叠条形图
+      let fields = uniqueSorted(data.map(d => d.研究领域).filter(Boolean));
+      let freqSet = uniqueSorted(data.map(d => d.吸烟频率).filter(Boolean));
+      // 构建交叉表
+      let grouped = {};
+      fields.forEach(f => grouped[f] = {});
+      data.forEach(d => {
+        if (!grouped[d.研究领域]) grouped[d.研究领域] = {};
+        if (!grouped[d.研究领域][d.吸烟频率]) grouped[d.研究领域][d.吸烟频率] = 0;
+        grouped[d.研究领域][d.吸烟频率]++;
+      });
+
+      let traces = freqSet.map(freq => {
+        return {
+          x: fields,
+          y: fields.map(f => grouped[f]?.[freq] || 0),
+          name: freq,
+          type: 'bar'
+        };
+      });
+
+      Plotly.newPlot("chart", traces, {
+        barmode: "stack",
+        title: "不同研究领域吸烟频率分布",
+        xaxis: { title: "研究领域" },
+        yaxis: { title: "人数" }
+      });
+
+    } else if (q === "q3") {
+      // 3. 年龄 vs 吸烟频率箱线图
+      let freqSet = uniqueSorted(data.map(d => d.吸烟频率).filter(Boolean));
+      // 年龄字段可能为范围字符串
+      let ageToMid = ageStr => {
+        if (!ageStr) return null;
+        if (typeof ageStr === "number") return ageStr;
+        let match = String(ageStr).match(/(\d+)-(\d+)/);
+        if (match) return (parseInt(match[1]) + parseInt(match[2])) / 2;
+        let num = parseInt(ageStr);
+        return isNaN(num) ? null : num;
+      };
+      let traces = freqSet.map(freq => {
+        let ages = data.filter(d => d.吸烟频率 === freq)
+                       .map(d => ageToMid(d.年龄))
+                       .filter(v => v !== null && !isNaN(v));
+        return ages.length > 0 ? {
+          y: ages,
+          name: freq,
+          type: 'box'
+        } : null;
+      }).filter(Boolean);
+
+      Plotly.newPlot("chart", traces, {
+        title: "不同吸烟频率对应年龄分布",
+        yaxis: { title: "年龄" }
+      });
+
+    } else if (q === "q4") {
+      // 4. 吸烟 vs 酒精 热力图
+      let freqX = uniqueSorted(data.map(d => d.酒精消费频率).filter(Boolean));
+      let freqY = uniqueSorted(data.map(d => d.吸烟频率).filter(Boolean));
+      let matrix = freqY.map(y =>
+        freqX.map(x =>
+          data.filter(d => d.吸烟频率 === y && d.酒精消费频率 === x).length
+        )
+      );
+
+      Plotly.newPlot("chart", [{
+        z: matrix,
+        x: freqX,
+        y: freqY,
+        type: 'heatmap',
+        colorscale: 'Viridis'
+      }], {
+        title: '吸烟频率与酒精消费频率交叉热力图',
+        xaxis: { title: "酒精消费频率" },
+        yaxis: { title: "吸烟频率" }
+      });
     }
-
-    // === Stacked Bar Chart ===
-    function drawStackedBar() {
-      const width = 600, height = 300, margin = { top: 20, right: 20, bottom: 40, left: 50 };
-      const svg = d3.select("#stacked")
-        .append("svg")
-        .attr("width", width)
-        .attr("height", height);
-
-      const keys = ["USA", "China", "EU"];
-
-      const x = d3.scaleBand()
-        .domain(stackedData.map(d => d.year))
-        .range([margin.left, width - margin.right])
-        .padding(0.1);
-
-      const y = d3.scaleLinear()
-        .domain([0, d3.max(stackedData, d => d.USA + d.China + d.EU)]).nice()
-        .range([height - margin.bottom, margin.top]);
-
-      const color = d3.scaleOrdinal()
-        .domain(keys)
-        .range(d3.schemeSet2);
-
-      const stack = d3.stack().keys(keys);
-      const series = stack(stackedData);
-
-      svg.append("g")
-        .selectAll("g")
-        .data(series)
-        .join("g")
-        .attr("fill", d => color(d.key))
-        .selectAll("rect")
-        .data(d => d)
-        .join("rect")
-        .attr("x", d => x(d.data.year))
-        .attr("y", d => y(d[1]))
-        .attr("height", d => y(d[0]) - y(d[1]))
-        .attr("width", x.bandwidth())
-        .on("mouseover", (event, d) => {
-          const country = event.target.__data__.data;
-          tooltip.style("visibility", "visible")
-            .text(JSON.stringify(country));
-        })
-        .on("mousemove", event => {
-          tooltip.style("top", (event.pageY + 10) + "px")
-            .style("left", (event.pageX + 10) + "px");
-        })
-        .on("mouseout", () => tooltip.style("visibility", "hidden"));
-    }
-
-    // === Boxplot (Simplified) ===
-    function drawBoxplot() {
-      const width = 600, height = 300, margin = { top: 20, right: 20, bottom: 40, left: 50 };
-      const svg = d3.select("#boxplot")
-        .append("svg")
-        .attr("width", width)
-        .attr("height", height);
-
-      const regions = boxplotData.map(d => d.region);
-      const x = d3.scaleBand().domain(regions).range([margin.left, width - margin.right]).padding(0.2);
-      const y = d3.scaleLinear().domain([0, 100]).nice().range([height - margin.bottom, margin.top]);
-
-      svg.append("g")
-        .selectAll("rect")
-        .data(boxplotData)
-        .join("rect")
-        .attr("x", d => x(d.region))
-        .attr("y", d => y(d3.quantile(d.values, 0.75)))
-        .attr("height", d => y(d3.quantile(d.values, 0.25)) - y(d3.quantile(d.values, 0.75)))
-        .attr("width", x.bandwidth())
-        .attr("fill", "#4682b4")
-        .on("mouseover", (event, d) => {
-          tooltip.style("visibility", "visible")
-            .text(`${d.region}: Q1=${d3.quantile(d.values, 0.25)}, Median=${d3.median(d.values)}, Q3=${d3.quantile(d.values, 0.75)}`);
-        })
-        .on("mousemove", event => {
-          tooltip.style("top", (event.pageY + 10) + "px")
-            .style("left", (event.pageX + 10) + "px");
-        })
-        .on("mouseout", () => tooltip.style("visibility", "hidden"));
-    }
-
-    // === Heatmap ===
-    function drawHeatmap() {
-      const width = 600, height = 300, margin = { top: 20, right: 20, bottom: 40, left: 50 };
-      const svg = d3.select("#heatmap")
-        .append("svg")
-        .attr("width", width)
-        .attr("height", height);
-
-      const x = d3.scaleBand().domain(years).range([margin.left, width - margin.right]).padding(0.05);
-      const y = d3.scaleBand().domain(countries).range([margin.top, height - margin.bottom]).padding(0.05);
-      const color = d3.scaleSequential(d3.interpolateOranges)
-        .domain([100, 200]);
-
-      svg.selectAll()
-        .data(heatmapData)
-        .join("rect")
-        .attr("x", d => x(d.year))
-        .attr("y", d => y(d.country))
-        .attr("width", x.bandwidth())
-        .attr("height", y.bandwidth())
-        .attr("fill", d => color(d.value))
-        .on("mouseover", (event, d) => {
-          tooltip.style("visibility", "visible").text(`${d.country} ${d.year}: ${d.value}`);
-        })
-        .on("mousemove", event => {
-          tooltip.style("top", (event.pageY + 10) + "px")
-            .style("left", (event.pageX + 10) + "px");
-        })
-        .on("mouseout", () => tooltip.style("visibility", "hidden"));
-    }
-
-    // === Init ===
-    drawSankey();
-    drawStackedBar();
-    drawBoxplot();
-    drawHeatmap();
-  </script>
+  }
+</script>
 </body>
 </html>
