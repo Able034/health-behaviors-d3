@@ -25,6 +25,50 @@
 <div id="chart"></div>
 
 <script>
+  // 色盲友好调色板
+  function colorBlindSafePalette(n, base) {
+    const palettes = {
+      smoke: [
+        'rgba(102,194,165,0.7)',
+        'rgba(252,141,98,0.7)',
+        'rgba(141,160,203,0.7)',
+        'rgba(231,138,195,0.7)',
+        'rgba(166,216,84,0.7)',
+        'rgba(255,217,47,0.7)',
+        'rgba(229,196,148,0.7)',
+        'rgba(179,179,179,0.7)'
+      ],
+      alcohol: [
+        'rgba(27,158,119,0.7)',
+        'rgba(217,95,2,0.7)',
+        'rgba(117,112,179,0.7)',
+        'rgba(231,41,138,0.7)',
+        'rgba(102,166,30,0.7)',
+        'rgba(230,171,2,0.7)',
+        'rgba(166,118,29,0.7)',
+        'rgba(102,102,102,0.7)'
+      ],
+      health: [
+        'rgba(0, 109, 44, 0.7)',
+        'rgba(49, 130, 189, 0.7)',
+        'rgba(204, 76, 2, 0.7)',
+        'rgba(178, 24, 43, 0.7)',
+        'rgba(253, 174, 97, 0.7)'
+      ]
+    };
+    let pal = palettes[base] || palettes.smoke;
+    if (n <= pal.length) return pal.slice(0, n);
+    let arr = [];
+    for (let i = 0; i < n; ++i) {
+      let hue = base === 'smoke' ? 160 : base === 'alcohol' ? 30 : 210;
+      let start = base === 'smoke' ? 60 : base === 'alcohol' ? 50 : 30;
+      let end = base === 'smoke' ? 80 : base === 'alcohol' ? 80 : 90;
+      let light = start + (end - start) * (i / (n - 1));
+      arr.push(`hsla(${hue},60%,${light}%,0.7)`);
+    }
+    return arr;
+  }
+
   // 心理健康排序，确保顺序一致
   const health_order = ['优秀', '好', '平均', '低于平均水平', '差'];
   let data = [];
@@ -60,36 +104,49 @@
       let alcohol_idx = Object.fromEntries(alcohol_labels.map((k, i) => [k, i+smoke_labels.length]));
       let health_idx = Object.fromEntries(health_labels.map((k, i) => [k, i+smoke_labels.length+alcohol_labels.length]));
 
-      let links_source = [], links_target = [], links_value = [];
+      let links_source = [], links_target = [], links_value = [], links_color = [];
 
-      // 吸烟 -> 酒精
-      smoke_labels.forEach(s => {
+      // 色盲友好节点颜色
+      const smoke_colors = colorBlindSafePalette(smoke_labels.length, 'smoke');
+      const alcohol_colors = colorBlindSafePalette(alcohol_labels.length, 'alcohol');
+      const health_colors = colorBlindSafePalette(health_labels.length, 'health');
+
+      const node_colors = [
+        ...smoke_colors,
+        ...alcohol_colors,
+        ...health_colors
+      ];
+
+      // links: 吸烟 -> 酒精
+      smoke_labels.forEach((s, si) => {
         let filtered = data.filter(d => d.吸烟频率 === s);
         let counts = {};
         filtered.forEach(d => {
           if (d.酒精消费频率) counts[d.酒精消费频率] = (counts[d.酒精消费频率] || 0) + 1;
         });
-        alcohol_labels.forEach(a => {
+        alcohol_labels.forEach((a, ai) => {
           if (counts[a]) {
             links_source.push(smoke_idx[s]);
             links_target.push(alcohol_idx[a]);
             links_value.push(counts[a]);
+            links_color.push(smoke_colors[si]);
           }
         });
       });
 
-      // 酒精 -> 心理健康
-      alcohol_labels.forEach(a => {
+      // links: 酒精 -> 心理健康
+      alcohol_labels.forEach((a, ai) => {
         let filtered = data.filter(d => d.酒精消费频率 === a);
         let counts = {};
         filtered.forEach(d => {
           if (d.心理健康) counts[d.心理健康] = (counts[d.心理健康] || 0) + 1;
         });
-        health_labels.forEach(h => {
+        health_labels.forEach((h, hi) => {
           if (counts[h]) {
             links_source.push(alcohol_idx[a]);
             links_target.push(health_idx[h]);
             links_value.push(counts[h]);
+            links_color.push(alcohol_colors[ai]);
           }
         });
       });
@@ -101,18 +158,28 @@
           label: labels,
           pad: 15,
           thickness: 20,
-          color: "lightblue"
+          color: node_colors,
+          line: { color: "#555", width: 0.5 }
         },
-        link: { source: links_source, target: links_target, value: links_value }
+        link: {
+          source: links_source,
+          target: links_target,
+          value: links_value,
+          color: links_color
+        }
       }], {
-        title: "吸烟、饮酒与心理健康关系（桑基图）"
+        title: "吸烟、饮酒与心理健康关系（桑基图）",
+        font: { size: 15 },
+        plot_bgcolor: "#fafafa",
+        paper_bgcolor: "#fafafa",
+        margin: { t: 50, b: 30, l: 20, r: 20 }
       });
 
     } else if (q === "q2") {
       // 2. 研究领域 vs 吸烟频率堆叠条形图
       let fields = uniqueSorted(data.map(d => d.研究领域).filter(Boolean));
       let freqSet = uniqueSorted(data.map(d => d.吸烟频率).filter(Boolean));
-      // 构建交叉表
+      const smoke_colors = colorBlindSafePalette(freqSet.length, 'smoke');
       let grouped = {};
       fields.forEach(f => grouped[f] = {});
       data.forEach(d => {
@@ -121,12 +188,13 @@
         grouped[d.研究领域][d.吸烟频率]++;
       });
 
-      let traces = freqSet.map(freq => {
+      let traces = freqSet.map((freq, i) => {
         return {
           x: fields,
           y: fields.map(f => grouped[f]?.[freq] || 0),
           name: freq,
-          type: 'bar'
+          type: 'bar',
+          marker: { color: smoke_colors[i] }
         };
       });
 
@@ -134,13 +202,15 @@
         barmode: "stack",
         title: "不同研究领域吸烟频率分布",
         xaxis: { title: "研究领域" },
-        yaxis: { title: "人数" }
+        yaxis: { title: "人数" },
+        plot_bgcolor: "#fafafa",
+        paper_bgcolor: "#fafafa"
       });
 
     } else if (q === "q3") {
       // 3. 年龄 vs 吸烟频率箱线图
       let freqSet = uniqueSorted(data.map(d => d.吸烟频率).filter(Boolean));
-      // 年龄字段可能为范围字符串
+      const smoke_colors = colorBlindSafePalette(freqSet.length, 'smoke');
       let ageToMid = ageStr => {
         if (!ageStr) return null;
         if (typeof ageStr === "number") return ageStr;
@@ -149,20 +219,23 @@
         let num = parseInt(ageStr);
         return isNaN(num) ? null : num;
       };
-      let traces = freqSet.map(freq => {
+      let traces = freqSet.map((freq, i) => {
         let ages = data.filter(d => d.吸烟频率 === freq)
                        .map(d => ageToMid(d.年龄))
                        .filter(v => v !== null && !isNaN(v));
         return ages.length > 0 ? {
           y: ages,
           name: freq,
-          type: 'box'
+          type: 'box',
+          marker: { color: smoke_colors[i] }
         } : null;
       }).filter(Boolean);
 
       Plotly.newPlot("chart", traces, {
         title: "不同吸烟频率对应年龄分布",
-        yaxis: { title: "年龄" }
+        yaxis: { title: "年龄" },
+        plot_bgcolor: "#fafafa",
+        paper_bgcolor: "#fafafa"
       });
 
     } else if (q === "q4") {
@@ -174,17 +247,27 @@
           data.filter(d => d.吸烟频率 === y && d.酒精消费频率 === x).length
         )
       );
+      const colorscale = [
+        [0, 'rgb(242,240,247)'],
+        [0.2, 'rgb(203,201,226)'],
+        [0.4, 'rgb(158,154,200)'],
+        [0.6, 'rgb(117,107,177)'],
+        [0.8, 'rgb(84,39,143)'],
+        [1, 'rgb(45,0,75)']
+      ];
 
       Plotly.newPlot("chart", [{
         z: matrix,
         x: freqX,
         y: freqY,
         type: 'heatmap',
-        colorscale: 'Viridis'
+        colorscale: colorscale
       }], {
         title: '吸烟频率与酒精消费频率交叉热力图',
         xaxis: { title: "酒精消费频率" },
-        yaxis: { title: "吸烟频率" }
+        yaxis: { title: "吸烟频率" },
+        plot_bgcolor: "#fafafa",
+        paper_bgcolor: "#fafafa"
       });
     }
   }
