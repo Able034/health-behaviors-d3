@@ -8,7 +8,8 @@
   <style>
     body { font-family: sans-serif; margin: 20px; }
     #chart { width: 100%; height: 700px; }
-    select { font-size: 16px; padding: 4px; margin-bottom: 20px; }
+    select, button { font-size: 16px; padding: 6px 10px; margin: 10px 5px 20px 0; }
+    #toggle-buttons { display: none; margin-bottom: 10px; }
   </style>
 </head>
 <body>
@@ -22,58 +23,35 @@
   <option value="q4">4. 吸烟与饮酒之间是否有联系</option>
 </select>
 
+<div id="toggle-buttons">
+  <button id="toggle-smoke" class="active">吸烟频率</button>
+  <button id="toggle-alcohol">酒精频率</button>
+</div>
+
 <div id="chart"></div>
 
 <script>
-  // 色盲友好调色板
   function colorBlindSafePalette(n, base) {
     const palettes = {
-      smoke: [
-        'rgba(102,194,165,0.7)',
-        'rgba(252,141,98,0.7)',
-        'rgba(141,160,203,0.7)',
-        'rgba(231,138,195,0.7)',
-        'rgba(166,216,84,0.7)',
-        'rgba(255,217,47,0.7)',
-        'rgba(229,196,148,0.7)',
-        'rgba(179,179,179,0.7)'
-      ],
-      alcohol: [
-        'rgba(27,158,119,0.7)',
-        'rgba(217,95,2,0.7)',
-        'rgba(117,112,179,0.7)',
-        'rgba(231,41,138,0.7)',
-        'rgba(102,166,30,0.7)',
-        'rgba(230,171,2,0.7)',
-        'rgba(166,118,29,0.7)',
-        'rgba(102,102,102,0.7)'
-      ],
-      health: [
-        'rgba(0, 109, 44, 0.7)',
-        'rgba(49, 130, 189, 0.7)',
-        'rgba(204, 76, 2, 0.7)',
-        'rgba(178, 24, 43, 0.7)',
-        'rgba(253, 174, 97, 0.7)'
-      ]
+      smoke: ['rgba(102,194,165,0.7)','rgba(252,141,98,0.7)','rgba(141,160,203,0.7)','rgba(231,138,195,0.7)','rgba(166,216,84,0.7)','rgba(255,217,47,0.7)','rgba(229,196,148,0.7)','rgba(179,179,179,0.7)'],
+      alcohol: ['rgba(27,158,119,0.7)','rgba(217,95,2,0.7)','rgba(117,112,179,0.7)','rgba(231,41,138,0.7)','rgba(102,166,30,0.7)','rgba(230,171,2,0.7)','rgba(166,118,29,0.7)','rgba(102,102,102,0.7)'],
+      health: ['rgba(0,109,44,0.7)','rgba(49,130,189,0.7)','rgba(204,76,2,0.7)','rgba(178,24,43,0.7)','rgba(253,174,97,0.7)']
     };
     let pal = palettes[base] || palettes.smoke;
     if (n <= pal.length) return pal.slice(0, n);
     let arr = [];
     for (let i = 0; i < n; ++i) {
       let hue = base === 'smoke' ? 160 : base === 'alcohol' ? 30 : 210;
-      let start = base === 'smoke' ? 60 : base === 'alcohol' ? 50 : 30;
-      let end = base === 'smoke' ? 80 : base === 'alcohol' ? 80 : 90;
-      let light = start + (end - start) * (i / (n - 1));
+      let light = 60 + (20 * (i / (n - 1)));
       arr.push(`hsla(${hue},60%,${light}%,0.7)`);
     }
     return arr;
   }
 
-  // 心理健康排序，确保顺序一致
   const health_order = ['优秀', '好', '平均', '低于平均水平', '差'];
   let data = [];
+  let currentVar = '吸烟频率';
 
-  // 读取 JSON 数据
   d3.json("data.json").then(raw => {
     data = raw;
     updateChart("q1");
@@ -83,41 +61,50 @@
     updateChart(this.value);
   });
 
-  // 唯一有序
+  document.getElementById("toggle-smoke").addEventListener("click", function () {
+    currentVar = '吸烟频率';
+    setButtonState(this);
+    updateChart(document.getElementById("question-select").value);
+  });
+
+  document.getElementById("toggle-alcohol").addEventListener("click", function () {
+    currentVar = '酒精消费频率';
+    setButtonState(this);
+    updateChart(document.getElementById("question-select").value);
+  });
+
+  function setButtonState(activeBtn) {
+    document.querySelectorAll('#toggle-buttons button').forEach(btn => {
+      btn.classList.remove('active');
+    });
+    activeBtn.classList.add('active');
+  }
+
   function uniqueSorted(arr, order) {
-    if (order) {
-      return order.filter(val => arr.includes(val));
-    }
+    if (order) return order.filter(val => arr.includes(val));
     return Array.from(new Set(arr));
   }
 
   function updateChart(q) {
+    const btnGroup = document.getElementById("toggle-buttons");
+    btnGroup.style.display = (q === "q2" || q === "q3") ? "block" : "none";
+
     if (q === "q1") {
-      // 1. 桑基图
+      // 原始桑基图
       let smoke_labels = uniqueSorted(data.map(d => d.吸烟频率).filter(Boolean));
       let alcohol_labels = uniqueSorted(data.map(d => d.酒精消费频率).filter(Boolean));
       let health_labels = health_order;
-
       let labels = smoke_labels.concat(alcohol_labels).concat(health_labels);
-
       let smoke_idx = Object.fromEntries(smoke_labels.map((k, i) => [k, i]));
-      let alcohol_idx = Object.fromEntries(alcohol_labels.map((k, i) => [k, i+smoke_labels.length]));
-      let health_idx = Object.fromEntries(health_labels.map((k, i) => [k, i+smoke_labels.length+alcohol_labels.length]));
+      let alcohol_idx = Object.fromEntries(alcohol_labels.map((k, i) => [k, i + smoke_labels.length]));
+      let health_idx = Object.fromEntries(health_labels.map((k, i) => [k, i + smoke_labels.length + alcohol_labels.length]));
 
       let links_source = [], links_target = [], links_value = [], links_color = [];
-
-      // 色盲友好节点颜色
       const smoke_colors = colorBlindSafePalette(smoke_labels.length, 'smoke');
       const alcohol_colors = colorBlindSafePalette(alcohol_labels.length, 'alcohol');
       const health_colors = colorBlindSafePalette(health_labels.length, 'health');
+      const node_colors = [...smoke_colors, ...alcohol_colors, ...health_colors];
 
-      const node_colors = [
-        ...smoke_colors,
-        ...alcohol_colors,
-        ...health_colors
-      ];
-
-      // links: 吸烟 -> 酒精
       smoke_labels.forEach((s, si) => {
         let filtered = data.filter(d => d.吸烟频率 === s);
         let counts = {};
@@ -134,7 +121,6 @@
         });
       });
 
-      // links: 酒精 -> 心理健康
       alcohol_labels.forEach((a, ai) => {
         let filtered = data.filter(d => d.酒精消费频率 === a);
         let counts = {};
@@ -154,53 +140,39 @@
       Plotly.newPlot("chart", [{
         type: "sankey",
         orientation: "h",
-        node: {
-          label: labels,
-          pad: 15,
-          thickness: 20,
-          color: node_colors,
-          line: { color: "#555", width: 0.5 }
-        },
-        link: {
-          source: links_source,
-          target: links_target,
-          value: links_value,
-          color: links_color
-        }
+        node: { label: labels, pad: 15, thickness: 20, color: node_colors, line: { color: "#555", width: 0.5 } },
+        link: { source: links_source, target: links_target, value: links_value, color: links_color }
       }], {
         title: "吸烟、饮酒与心理健康关系（桑基图）",
         font: { size: 15 },
         plot_bgcolor: "#fafafa",
-        paper_bgcolor: "#fafafa",
-        margin: { t: 50, b: 30, l: 20, r: 20 }
+        paper_bgcolor: "#fafafa"
       });
 
     } else if (q === "q2") {
-      // 2. 研究领域 vs 吸烟频率堆叠条形图
+      // 研究领域堆叠条形图
       let fields = uniqueSorted(data.map(d => d.研究领域).filter(Boolean));
-      let freqSet = uniqueSorted(data.map(d => d.吸烟频率).filter(Boolean));
-      const smoke_colors = colorBlindSafePalette(freqSet.length, 'smoke');
+      let freqSet = uniqueSorted(data.map(d => d[currentVar]).filter(Boolean));
+      const colors = colorBlindSafePalette(freqSet.length, currentVar === '吸烟频率' ? 'smoke' : 'alcohol');
       let grouped = {};
       fields.forEach(f => grouped[f] = {});
       data.forEach(d => {
         if (!grouped[d.研究领域]) grouped[d.研究领域] = {};
-        if (!grouped[d.研究领域][d.吸烟频率]) grouped[d.研究领域][d.吸烟频率] = 0;
-        grouped[d.研究领域][d.吸烟频率]++;
+        if (!grouped[d.研究领域][d[currentVar]]) grouped[d.研究领域][d[currentVar]] = 0;
+        grouped[d.研究领域][d[currentVar]]++;
       });
 
-      let traces = freqSet.map((freq, i) => {
-        return {
-          x: fields,
-          y: fields.map(f => grouped[f]?.[freq] || 0),
-          name: freq,
-          type: 'bar',
-          marker: { color: smoke_colors[i] }
-        };
-      });
+      let traces = freqSet.map((freq, i) => ({
+        x: fields,
+        y: fields.map(f => grouped[f]?.[freq] || 0),
+        name: freq,
+        type: 'bar',
+        marker: { color: colors[i] }
+      }));
 
       Plotly.newPlot("chart", traces, {
         barmode: "stack",
-        title: "不同研究领域吸烟频率分布",
+        title: `不同研究领域${currentVar}分布`,
         xaxis: { title: "研究领域" },
         yaxis: { title: "人数" },
         plot_bgcolor: "#fafafa",
@@ -208,9 +180,9 @@
       });
 
     } else if (q === "q3") {
-      // 3. 年龄 vs 吸烟频率箱线图
-      let freqSet = uniqueSorted(data.map(d => d.吸烟频率).filter(Boolean));
-      const smoke_colors = colorBlindSafePalette(freqSet.length, 'smoke');
+      // 年龄箱线图
+      let freqSet = uniqueSorted(data.map(d => d[currentVar]).filter(Boolean));
+      const colors = colorBlindSafePalette(freqSet.length, currentVar === '吸烟频率' ? 'smoke' : 'alcohol');
       let ageToMid = ageStr => {
         if (!ageStr) return null;
         if (typeof ageStr === "number") return ageStr;
@@ -220,48 +192,45 @@
         return isNaN(num) ? null : num;
       };
       let traces = freqSet.map((freq, i) => {
-        let ages = data.filter(d => d.吸烟频率 === freq)
+        let ages = data.filter(d => d[currentVar] === freq)
                        .map(d => ageToMid(d.年龄))
                        .filter(v => v !== null && !isNaN(v));
         return ages.length > 0 ? {
           y: ages,
           name: freq,
           type: 'box',
-          marker: { color: smoke_colors[i] }
+          marker: { color: colors[i] }
         } : null;
       }).filter(Boolean);
 
       Plotly.newPlot("chart", traces, {
-        title: "不同吸烟频率对应年龄分布",
+        title: `不同${currentVar}对应年龄分布`,
         yaxis: { title: "年龄" },
         plot_bgcolor: "#fafafa",
         paper_bgcolor: "#fafafa"
       });
 
     } else if (q === "q4") {
-      // 4. 吸烟 vs 酒精 热力图
+      // 吸烟 vs 酒精 热力图
       let freqX = uniqueSorted(data.map(d => d.酒精消费频率).filter(Boolean));
       let freqY = uniqueSorted(data.map(d => d.吸烟频率).filter(Boolean));
-      let matrix = freqY.map(y =>
-        freqX.map(x =>
-          data.filter(d => d.吸烟频率 === y && d.酒精消费频率 === x).length
-        )
-      );
-      const colorscale = [
-        [0, 'rgb(242,240,247)'],
-        [0.2, 'rgb(203,201,226)'],
-        [0.4, 'rgb(158,154,200)'],
-        [0.6, 'rgb(117,107,177)'],
-        [0.8, 'rgb(84,39,143)'],
-        [1, 'rgb(45,0,75)']
-      ];
+      let matrix = freqY.map(y => freqX.map(x =>
+        data.filter(d => d.吸烟频率 === y && d.酒精消费频率 === x).length
+      ));
 
       Plotly.newPlot("chart", [{
         z: matrix,
         x: freqX,
         y: freqY,
         type: 'heatmap',
-        colorscale: colorscale
+        colorscale: [
+          [0, 'rgb(242,240,247)'],
+          [0.2, 'rgb(203,201,226)'],
+          [0.4, 'rgb(158,154,200)'],
+          [0.6, 'rgb(117,107,177)'],
+          [0.8, 'rgb(84,39,143)'],
+          [1, 'rgb(45,0,75)']
+        ]
       }], {
         title: '吸烟频率与酒精消费频率交叉热力图',
         xaxis: { title: "酒精消费频率" },
